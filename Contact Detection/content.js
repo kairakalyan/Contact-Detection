@@ -1,0 +1,159 @@
+console.log("✅ Recruiter Filter + PHONE-ONLY MODE STARTED");
+
+// ================= RUNNING FLAG =================
+let running = true;
+
+// ================= PHONE REGEX (US, ROBUST) =================
+// Matches formats like:
+// (650)850-5480 EXT 951
+// 724.278.3092
+// 470.567.4586 Ext: 104
+// 7342592181 ext 445
+// 732-356-8008 x 321
+const phoneRegex = /\b(?:\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})(?:\s*(?:ext|EXT|x|extension|Ext|Ext:)\s*[:.]?\s*\d{1,5})?\b/g;
+
+const foundPhones = new Set();
+
+// ================= US STATES =================
+const usStates = [
+  "alabama","alaska","arizona","arkansas","california","colorado","connecticut",
+  "delaware","florida","georgia","illinois","new york","new jersey",
+  "texas","washington","virginia","ohio",
+  "ca","tx","ny","nj","il","fl","va","wa"
+];
+
+// ================= HELPERS =================
+const hasAny = (text, list) => list.some(k => text.includes(k));
+const hasUSZip = text => /\b\d{5}\b/.test(text);
+
+function isUSPost(text) {
+  return (
+    hasAny(text, usStates) ||
+    hasUSZip(text) ||
+    text.includes("united states") ||
+    text.includes("usa") ||
+    text.includes("remote us")
+  );
+}
+
+// ================= PHONE CHECK =================
+function hasPhoneNumber(post) {
+  phoneRegex.lastIndex = 0;
+  return phoneRegex.test(post.innerText);
+}
+
+// Extract and display phone numbers as badges
+function extractPhones(post) {
+  if (post.dataset.phoneExtracted) return;
+  post.dataset.phoneExtracted = "true";
+
+  phoneRegex.lastIndex = 0;
+  const matches = post.innerText.match(phoneRegex);
+  if (!matches) return;
+
+  matches.forEach(num => {
+    const clean = num.trim();
+    if (foundPhones.has(clean)) return;
+
+    foundPhones.add(clean);
+    console.log("📞 Recruiter Phone Found:", clean);
+
+    const badge = document.createElement("div");
+    badge.innerText = `📞 ${clean}`;
+    badge.style.cssText =
+      "position:absolute;bottom:8px;right:8px;background:#0a66c2;color:#fff;padding:4px 6px;font-size:11px;border-radius:4px;z-index:999";
+    post.appendChild(badge);
+  });
+}
+
+// ================= PROCESS POSTS =================
+function processPost(post) {
+  if (!running || post.dataset.scored) return;
+  post.dataset.scored = "true";
+
+  const text = post.innerText.toLowerCase();
+
+  // 🚫 MUST HAVE PHONE NUMBER & US POST
+  if (!hasPhoneNumber(post) || !isUSPost(text)) {
+    post.style.display = "none";
+    return;
+  }
+
+  post.style.display = "block";
+  post.style.border = "3px solid #0a66c2";
+  post.style.background = "#eef6ff";
+  post.style.position = "relative";
+
+  extractPhones(post);
+  rankFeed();
+}
+
+// ================= RANK FEED =================
+function rankFeed() {
+  const posts = [...document.querySelectorAll("div.feed-shared-update-v2")]
+    .filter(p => p.dataset.scored)
+    .sort((a, b) => b.innerText.length - a.innerText.length);
+
+  posts.forEach(p => p.parentElement.prepend(p));
+}
+
+// ================= EXPAND / LOAD MORE =================
+function expandPostOnce() {
+  const btn = document.querySelector(
+    'button.feed-shared-inline-show-more-text__see-more-less-toggle:not([data-clicked])'
+  );
+  if (btn) {
+    btn.dataset.clicked = "true";
+    btn.click();
+  }
+}
+
+function clickLoadMoreOnce() {
+  const btn = document.querySelector(
+    'button[aria-label*="more"]:not([data-clicked])'
+  );
+  if (btn && btn.offsetParent !== null) {
+    btn.dataset.clicked = "true";
+    btn.click();
+  }
+}
+
+// ================= OBSERVER =================
+const observer = new MutationObserver(() => {
+  document.querySelectorAll("div.feed-shared-update-v2").forEach(processPost);
+  expandPostOnce();
+  clickLoadMoreOnce();
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
+// ================= CSV EXPORT =================
+function exportPhonesToCSV() {
+  if (foundPhones.size === 0) {
+    console.warn("⚠️ No phone numbers found yet.");
+    return;
+  }
+
+  const csvContent = "data:text/csv;charset=utf-8," + Array.from(foundPhones).join("\n");
+  const encodedUri = encodeURI(csvContent);
+
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "recruiter_phones.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  console.log(`✅ Exported ${foundPhones.size} phone numbers to recruiter_phones.csv`);
+}
+
+// ================= HOTKEY FOR CSV =================
+// Press Ctrl+Shift+E to export collected phone numbers
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyE") {
+    exportPhonesToCSV();
+  }
+});
+
+console.log("🚀 ONLY POSTS WITH PHONE NUMBERS ARE SHOWN");
+console.log("💡 Press Ctrl+Shift+E to export all found phones to CSV");
