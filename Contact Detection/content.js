@@ -2,7 +2,9 @@ console.log("✅ Recruiter Filter + PHONE-VISIBLE MODE STARTED");
 
 // ================= FLAGS =================
 let running = true;
-let scrollStopped = false;
+let autoScrollRunning = false;
+let manualPaused = false;     // 👈 USER action
+let phoneDetected = false;    // 👈 SCRIPT action
 
 // ================= PHONE REGEX =================
 const phoneRegex = /\b(?:\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})(?:\s*(?:ext|EXT|x|extension|Ext|Ext:)\s*[:.]?\s*\d{1,5})?\b/g;
@@ -29,7 +31,7 @@ function isUSPost(text) {
   );
 }
 
-// ================= VIEWPORT CHECK =================
+// ================= VISIBILITY =================
 function isVisible(post) {
   const r = post.getBoundingClientRect();
   return r.top < window.innerHeight && r.bottom > 0;
@@ -37,26 +39,32 @@ function isVisible(post) {
 
 // ================= AUTO SCROLL =================
 let autoScrollInterval = null;
-let autoScrollRunning = false;
 let scrollBtn;
 
 function startAutoScroll() {
-  if (autoScrollRunning || scrollStopped) return;
+  if (autoScrollRunning || phoneDetected) return;
+
+  manualPaused = false;
   autoScrollRunning = true;
   updateButton();
 
   autoScrollInterval = setInterval(() => {
     window.scrollBy({ top: 600, behavior: "smooth" });
   }, 1200);
+
+  console.log("🟢 Auto-scroll started");
 }
 
-function stopAutoScroll(reason) {
+function stopAutoScroll(reason, isManual = false) {
   if (!autoScrollRunning) return;
+
   clearInterval(autoScrollInterval);
   autoScrollInterval = null;
   autoScrollRunning = false;
-  scrollStopped = true;
+
+  manualPaused = isManual;
   updateButton();
+
   console.log("🛑 Auto-scroll stopped →", reason);
 }
 
@@ -79,7 +87,9 @@ function createScrollButton() {
   `;
 
   scrollBtn.onclick = () => {
-    autoScrollRunning ? stopAutoScroll("Paused manually") : startAutoScroll();
+    autoScrollRunning
+      ? stopAutoScroll("Paused manually", true)
+      : startAutoScroll();
   };
 
   document.body.appendChild(scrollBtn);
@@ -89,20 +99,31 @@ function createScrollButton() {
 function updateButton() {
   if (!scrollBtn) return;
 
-  if (scrollStopped) {
-    scrollBtn.innerText = "📞 Phones Found";
+  // 📞 SCRIPT detected phone (AUTO)
+  if (phoneDetected) {
+    scrollBtn.innerText = "📞 Phone Found";
     scrollBtn.style.background = "#2e7d32";
     scrollBtn.disabled = true;
     return;
   }
 
+  // ⏸️ USER paused
+  if (!autoScrollRunning && manualPaused) {
+    scrollBtn.innerText = "▶ Resume Scroll";
+    scrollBtn.style.background = "#d32f2f";
+    return;
+  }
+
+  // 🟢 Running
   if (autoScrollRunning) {
     scrollBtn.innerText = "⏸ Pause Scroll";
     scrollBtn.style.background = "#0a66c2";
-  } else {
-    scrollBtn.innerText = "▶ Resume Scroll";
-    scrollBtn.style.background = "#d32f2f";
+    return;
   }
+
+  // Default
+  scrollBtn.innerText = "▶ Resume Scroll";
+  scrollBtn.style.background = "#d32f2f";
 }
 
 // ================= PHONE HELPERS =================
@@ -140,17 +161,11 @@ function extractPhones(post) {
 function processPost(post) {
   const text = post.innerText.toLowerCase();
 
-  const phonePresent = hasPhone(post);
-  const usPost = isUSPost(text);
-  const visible = isVisible(post);
-
-  // ❌ Hide irrelevant posts
-  if (!phonePresent || !usPost) {
+  if (!hasPhone(post) || !isUSPost(text)) {
     post.style.display = "none";
     return;
   }
 
-  // ✅ Show & highlight all phone posts
   post.style.display = "block";
   post.style.border = "3px solid #0a66c2";
   post.style.background = "#eef6ff";
@@ -158,9 +173,11 @@ function processPost(post) {
 
   extractPhones(post);
 
-  // 🛑 Stop scrolling if ANY phone post is visible
-  if (visible && !scrollStopped) {
-    stopAutoScroll("Phone post visible");
+  // 📞 AUTO DETECT → stop & lock
+  if (!phoneDetected && isVisible(post)) {
+    phoneDetected = true;
+    stopAutoScroll("Phone visible on screen", false);
+    updateButton();
   }
 }
 
@@ -199,5 +216,5 @@ createScrollButton();
 startAutoScroll();
 
 console.log("🚀 Auto-scroll active");
-console.log("📞 Shows ALL posts with visible contacts");
-console.log("🛑 Stops when any phone post is visible");
+console.log("⏸ Manual pause → Resume button");
+console.log("📞 Auto-detect → Phone Found button");
