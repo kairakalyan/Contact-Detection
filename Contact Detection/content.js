@@ -4,15 +4,10 @@ console.log("✅ Recruiter Filter + PHONE-ONLY MODE STARTED");
 let running = true;
 
 // ================= PHONE REGEX (US, ROBUST) =================
-// Matches formats like:
-// (650)850-5480 EXT 951
-// 724.278.3092
-// 470.567.4586 Ext: 104
-// 7342592181 ext 445
-// 732-356-8008 x 321
 const phoneRegex = /\b(?:\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})(?:\s*(?:ext|EXT|x|extension|Ext|Ext:)\s*[:.]?\s*\d{1,5})?\b/g;
 
 const foundPhones = new Set();
+let firstPhoneFound = false; // 🔑 KEY FLAG
 
 // ================= US STATES =================
 const usStates = [
@@ -42,7 +37,29 @@ function hasPhoneNumber(post) {
   return phoneRegex.test(post.innerText);
 }
 
-// Extract and display phone numbers as badges
+// ================= AUTO SCROLL =================
+let autoScrollInterval = null;
+let autoScrollRunning = false;
+
+function startAutoScroll() {
+  if (autoScrollRunning) return;
+  autoScrollRunning = true;
+  console.log("🟢 Auto-scroll started");
+
+  autoScrollInterval = setInterval(() => {
+    window.scrollBy({ top: 600, behavior: "smooth" });
+  }, 1200);
+}
+
+function stopAutoScroll(reason = "") {
+  if (!autoScrollRunning) return;
+  clearInterval(autoScrollInterval);
+  autoScrollInterval = null;
+  autoScrollRunning = false;
+  console.log("🛑 Auto-scroll stopped →", reason);
+}
+
+// ================= EXTRACT PHONE =================
 function extractPhones(post) {
   if (post.dataset.phoneExtracted) return;
   post.dataset.phoneExtracted = "true";
@@ -58,10 +75,18 @@ function extractPhones(post) {
     foundPhones.add(clean);
     console.log("📞 Recruiter Phone Found:", clean);
 
+    // 🛑 STOP IMMEDIATELY AFTER FIRST PHONE
+    if (!firstPhoneFound) {
+      firstPhoneFound = true;
+      stopAutoScroll("First phone number found");
+    }
+
     const badge = document.createElement("div");
     badge.innerText = `📞 ${clean}`;
     badge.style.cssText =
-      "position:absolute;bottom:8px;right:8px;background:#0a66c2;color:#fff;padding:4px 6px;font-size:11px;border-radius:4px;z-index:999";
+      "position:absolute;bottom:8px;right:8px;background:#0a66c2;color:#fff;padding:4px 6px;font-size:11px;border-radius:4px;z-index:999;cursor:pointer";
+
+    badge.onclick = () => navigator.clipboard.writeText(clean);
     post.appendChild(badge);
   });
 }
@@ -73,7 +98,6 @@ function processPost(post) {
 
   const text = post.innerText.toLowerCase();
 
-  // 🚫 MUST HAVE PHONE NUMBER & US POST
   if (!hasPhoneNumber(post) || !isUSPost(text)) {
     post.style.display = "none";
     return;
@@ -134,26 +158,28 @@ function exportPhonesToCSV() {
     return;
   }
 
-  const csvContent = "data:text/csv;charset=utf-8," + Array.from(foundPhones).join("\n");
-  const encodedUri = encodeURI(csvContent);
-
+  const csv =
+    "data:text/csv;charset=utf-8," + Array.from(foundPhones).join("\n");
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", "recruiter_phones.csv");
+  link.href = encodeURI(csv);
+  link.download = "recruiter_phones.csv";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 
-  console.log(`✅ Exported ${foundPhones.size} phone numbers to recruiter_phones.csv`);
+  console.log(`✅ Exported ${foundPhones.size} phone numbers`);
 }
 
-// ================= HOTKEY FOR CSV =================
-// Press Ctrl+Shift+E to export collected phone numbers
+// ================= HOTKEYS =================
 document.addEventListener("keydown", e => {
-  if (e.ctrlKey && e.shiftKey && e.code === "KeyE") {
-    exportPhonesToCSV();
-  }
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyE") exportPhonesToCSV();
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyS") startAutoScroll();
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyX") stopAutoScroll("Manual stop");
 });
 
-console.log("🚀 ONLY POSTS WITH PHONE NUMBERS ARE SHOWN");
-console.log("💡 Press Ctrl+Shift+E to export all found phones to CSV");
+// ================= START =================
+startAutoScroll();
+
+console.log("🚀 AUTO-SCROLL ENABLED");
+console.log("🛑 Stops after FIRST phone number only");
+console.log("💡 Ctrl+Shift+E → Export CSV");
