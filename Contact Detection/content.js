@@ -1,15 +1,14 @@
-console.log("✅ Recruiter Filter + PHONE-ONLY MODE STARTED");
+console.log("✅ Recruiter Filter + PHONE-VISIBLE MODE STARTED");
 
-// ================= RUNNING FLAG =================
+// ================= FLAGS =================
 let running = true;
+let scrollStopped = false;
 
-// ================= PHONE REGEX (US, ROBUST) =================
+// ================= PHONE REGEX =================
 const phoneRegex = /\b(?:\(\d{3}\)\s*\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})(?:\s*(?:ext|EXT|x|extension|Ext|Ext:)\s*[:.]?\s*\d{1,5})?\b/g;
-
 const foundPhones = new Set();
-let firstPhoneFound = false; // 🔑 KEY FLAG
 
-// ================= US STATES =================
+// ================= US CHECK =================
 const usStates = [
   "alabama","alaska","arizona","arkansas","california","colorado","connecticut",
   "delaware","florida","georgia","illinois","new york","new jersey",
@@ -17,7 +16,6 @@ const usStates = [
   "ca","tx","ny","nj","il","fl","va","wa"
 ];
 
-// ================= HELPERS =================
 const hasAny = (text, list) => list.some(k => text.includes(k));
 const hasUSZip = text => /\b\d{5}\b/.test(text);
 
@@ -31,32 +29,86 @@ function isUSPost(text) {
   );
 }
 
-// ================= PHONE CHECK =================
-function hasPhoneNumber(post) {
-  phoneRegex.lastIndex = 0;
-  return phoneRegex.test(post.innerText);
+// ================= VIEWPORT CHECK =================
+function isVisible(post) {
+  const r = post.getBoundingClientRect();
+  return r.top < window.innerHeight && r.bottom > 0;
 }
 
 // ================= AUTO SCROLL =================
 let autoScrollInterval = null;
 let autoScrollRunning = false;
+let scrollBtn;
 
 function startAutoScroll() {
-  if (autoScrollRunning) return;
+  if (autoScrollRunning || scrollStopped) return;
   autoScrollRunning = true;
-  console.log("🟢 Auto-scroll started");
+  updateButton();
 
   autoScrollInterval = setInterval(() => {
     window.scrollBy({ top: 600, behavior: "smooth" });
   }, 1200);
 }
 
-function stopAutoScroll(reason = "") {
+function stopAutoScroll(reason) {
   if (!autoScrollRunning) return;
   clearInterval(autoScrollInterval);
   autoScrollInterval = null;
   autoScrollRunning = false;
+  scrollStopped = true;
+  updateButton();
   console.log("🛑 Auto-scroll stopped →", reason);
+}
+
+// ================= BUTTON =================
+function createScrollButton() {
+  scrollBtn = document.createElement("button");
+  scrollBtn.style.cssText = `
+    position:fixed;
+    bottom:20px;
+    left:20px;
+    z-index:99999;
+    padding:10px 14px;
+    font-size:13px;
+    font-weight:600;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+    color:#fff;
+    box-shadow:0 4px 10px rgba(0,0,0,.3);
+  `;
+
+  scrollBtn.onclick = () => {
+    autoScrollRunning ? stopAutoScroll("Paused manually") : startAutoScroll();
+  };
+
+  document.body.appendChild(scrollBtn);
+  updateButton();
+}
+
+function updateButton() {
+  if (!scrollBtn) return;
+
+  if (scrollStopped) {
+    scrollBtn.innerText = "📞 Phones Found";
+    scrollBtn.style.background = "#2e7d32";
+    scrollBtn.disabled = true;
+    return;
+  }
+
+  if (autoScrollRunning) {
+    scrollBtn.innerText = "⏸ Pause Scroll";
+    scrollBtn.style.background = "#0a66c2";
+  } else {
+    scrollBtn.innerText = "▶ Resume Scroll";
+    scrollBtn.style.background = "#d32f2f";
+  }
+}
+
+// ================= PHONE HELPERS =================
+function hasPhone(post) {
+  phoneRegex.lastIndex = 0;
+  return phoneRegex.test(post.innerText);
 }
 
 // ================= EXTRACT PHONE =================
@@ -73,19 +125,12 @@ function extractPhones(post) {
     if (foundPhones.has(clean)) return;
 
     foundPhones.add(clean);
-    console.log("📞 Recruiter Phone Found:", clean);
-
-    // 🛑 STOP IMMEDIATELY AFTER FIRST PHONE
-    if (!firstPhoneFound) {
-      firstPhoneFound = true;
-      stopAutoScroll("First phone number found");
-    }
+    console.log("📞 Phone:", clean);
 
     const badge = document.createElement("div");
     badge.innerText = `📞 ${clean}`;
     badge.style.cssText =
       "position:absolute;bottom:8px;right:8px;background:#0a66c2;color:#fff;padding:4px 6px;font-size:11px;border-radius:4px;z-index:999;cursor:pointer";
-
     badge.onclick = () => navigator.clipboard.writeText(clean);
     post.appendChild(badge);
   });
@@ -93,35 +138,33 @@ function extractPhones(post) {
 
 // ================= PROCESS POSTS =================
 function processPost(post) {
-  if (!running || post.dataset.scored) return;
-  post.dataset.scored = "true";
-
   const text = post.innerText.toLowerCase();
 
-  if (!hasPhoneNumber(post) || !isUSPost(text)) {
+  const phonePresent = hasPhone(post);
+  const usPost = isUSPost(text);
+  const visible = isVisible(post);
+
+  // ❌ Hide irrelevant posts
+  if (!phonePresent || !usPost) {
     post.style.display = "none";
     return;
   }
 
+  // ✅ Show & highlight all phone posts
   post.style.display = "block";
   post.style.border = "3px solid #0a66c2";
   post.style.background = "#eef6ff";
   post.style.position = "relative";
 
   extractPhones(post);
-  rankFeed();
+
+  // 🛑 Stop scrolling if ANY phone post is visible
+  if (visible && !scrollStopped) {
+    stopAutoScroll("Phone post visible");
+  }
 }
 
-// ================= RANK FEED =================
-function rankFeed() {
-  const posts = [...document.querySelectorAll("div.feed-shared-update-v2")]
-    .filter(p => p.dataset.scored)
-    .sort((a, b) => b.innerText.length - a.innerText.length);
-
-  posts.forEach(p => p.parentElement.prepend(p));
-}
-
-// ================= EXPAND / LOAD MORE =================
+// ================= EXPAND / LOAD =================
 function expandPostOnce() {
   const btn = document.querySelector(
     'button.feed-shared-inline-show-more-text__see-more-less-toggle:not([data-clicked])'
@@ -151,35 +194,10 @@ const observer = new MutationObserver(() => {
 
 observer.observe(document.body, { childList: true, subtree: true });
 
-// ================= CSV EXPORT =================
-function exportPhonesToCSV() {
-  if (foundPhones.size === 0) {
-    console.warn("⚠️ No phone numbers found yet.");
-    return;
-  }
-
-  const csv =
-    "data:text/csv;charset=utf-8," + Array.from(foundPhones).join("\n");
-  const link = document.createElement("a");
-  link.href = encodeURI(csv);
-  link.download = "recruiter_phones.csv";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  console.log(`✅ Exported ${foundPhones.size} phone numbers`);
-}
-
-// ================= HOTKEYS =================
-document.addEventListener("keydown", e => {
-  if (e.ctrlKey && e.shiftKey && e.code === "KeyE") exportPhonesToCSV();
-  if (e.ctrlKey && e.shiftKey && e.code === "KeyS") startAutoScroll();
-  if (e.ctrlKey && e.shiftKey && e.code === "KeyX") stopAutoScroll("Manual stop");
-});
-
 // ================= START =================
+createScrollButton();
 startAutoScroll();
 
-console.log("🚀 AUTO-SCROLL ENABLED");
-console.log("🛑 Stops after FIRST phone number only");
-console.log("💡 Ctrl+Shift+E → Export CSV");
+console.log("🚀 Auto-scroll active");
+console.log("📞 Shows ALL posts with visible contacts");
+console.log("🛑 Stops when any phone post is visible");
